@@ -1,0 +1,117 @@
+{% extends "base_admin.html" %}
+{% block title %}الطلبات الإدارية{% endblock %}
+{% block page_title %}طلبات إفادة / شهادة مرتب{% endblock %}
+{% block action_bar %}
+<select id="statusFilter" class="form-select form-select-sm">
+  <option value="">كل الحالات</option>
+  <option value="new">جديد</option>
+  <option value="preparing">تحت التجهيز</option>
+  <option value="ready">جاهز</option>
+  <option value="delivered">تم التسليم</option>
+  <option value="cancelled">ملغي</option>
+</select>
+<button class="btn btn-sm btn-primary" id="btnReload">تحديث</button>
+<div class="form-check form-switch ms-2">
+  <input class="form-check-input" id="autoChk" type="checkbox">
+  <label class="form-check-label small" for="autoChk">تلقائي</label>
+</div>
+{% endblock %}
+{% block content %}
+<div class="card-block table-holder">
+  <div class="small-note mb-2">تغيير الحالة يرسل إشعار تليجرام للموظف (إن كان لديه Chat ID).</div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0" id="reqTable">
+      <thead class="table-light">
+        <tr>
+          <th>#</th><th>الموظف</th><th>النوع</th><th>الحالة</th><th>أنشئ</th><th>آخر تحديث</th><th>إجراءات</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="emptyState" class="text-center text-muted py-3 d-none">لا توجد بيانات</div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+const API='/api/v1/service-requests';
+const statusMap={
+  new:{label:'جديد',cls:'badge-new'},
+  preparing:{label:'تحت التجهيز',cls:'badge-preparing'},
+  ready:{label:'جاهز',cls:'badge-ready'},
+  delivered:{label:'تم التسليم',cls:'badge-delivered'},
+  cancelled:{label:'ملغي',cls:'badge-cancelled'}
+};
+const typeMap={CERT:'إفادة',SALARY:'شهادة مرتب'};
+let autoTimer=null;
+
+async function loadRequests(){
+  const st=document.getElementById('statusFilter').value;
+  const qs=st?('?status='+encodeURIComponent(st)):'';
+  try{
+    const r=await fetch(API+qs,{credentials:'include'});
+    const data=await r.json();
+    const tb=document.querySelector('#reqTable tbody');
+    tb.innerHTML='';
+    if(!Array.isArray(data)||!data.length){
+      document.getElementById('emptyState').classList.remove('d-none');return;
+    }
+    document.getElementById('emptyState').classList.add('d-none');
+    data.forEach(row=>{
+      const st=statusMap[row.status]||{label:row.status,cls:''};
+      const tr=document.createElement('tr');
+      tr.innerHTML=`
+        <td>${row.id}</td>
+        <td>${row.employee_name?row.employee_name:('#'+row.employee_id)}</td>
+        <td>${typeMap[row.request_type]||row.request_type}</td>
+        <td><span class="badge-status ${st.cls}">${st.label}</span></td>
+        <td>${row.created_at}</td>
+        <td>${row.updated_at}</td>
+        <td class="text-nowrap">${buttons(row.status,row.id)}</td>
+      `;
+      tb.appendChild(tr);
+    });
+  }catch(e){
+    window.AdminUtils.flash("فشل التحميل: "+e.message,"danger");
+  }
+}
+function buttons(current,id){
+  const order=['new','preparing','ready','delivered','cancelled'];
+  return order.filter(s=>s!==current).map(s=>(
+    `<button class="btn btn-outline-secondary btn-sm me-1" data-id="${id}" data-status="${s}">${statusMap[s].label}</button>`
+  )).join('');
+}
+document.getElementById('reqTable').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-status]');
+  if(!b) return;
+  updateStatus(b.dataset.id,b.dataset.status);
+});
+async function updateStatus(id,st){
+  if(!confirm('تأكيد تغيير الحالة إلى '+(statusMap[st]?.label||st)+'؟')) return;
+  try{
+    const r=await fetch(`${API}/${id}/status`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'include',
+      body:JSON.stringify({status:st})
+    });
+    const js=await r.json();
+    if(!r.ok) throw new Error(js.error||'فشل');
+    loadRequests();
+    window.AdminUtils.flash("تم التحديث","success");
+  }catch(e){
+    window.AdminUtils.flash(e.message,"danger");
+  }
+}
+document.getElementById('btnReload').addEventListener('click',loadRequests);
+document.getElementById('statusFilter').addEventListener('change',loadRequests);
+document.getElementById('autoChk').addEventListener('change',e=>{
+  if(e.target.checked){
+    autoTimer=setInterval(loadRequests,30000);
+  }else{
+    clearInterval(autoTimer);autoTimer=null;
+  }
+});
+document.addEventListener('DOMContentLoaded',loadRequests);
+</script>
+{% endblock %}

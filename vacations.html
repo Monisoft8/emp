@@ -1,0 +1,814 @@
+{% extends "base_admin.html" %}
+{% block title %}إدارة الإجازات{% endblock %}
+{% block page_title %}نظام الإجازات{% endblock %}
+
+{% block action_bar %}
+<button id="btnReload" class="btn btn-sm btn-secondary">تحديث</button>
+<button id="btnNew" class="btn btn-sm btn-success">طلب إجازة جديدة</button>
+<select id="statusFilter" class="form-select form-select-sm">
+  <option value="">كل الحالات</option>
+  <option value="pending_dept">بانتظار رئيس القسم</option>
+  <option value="pending_manager">بانتظار المدير</option>
+  <option value="approved">معتمدة</option>
+  <option value="rejected_dept">مرفوضة (قسم)</option>
+  <option value="rejected_manager">مرفوضة (مدير)</option>
+  <option value="cancelled">ملغاة</option>
+</select>
+<select id="typeFilter" class="form-select form-select-sm">
+  <option value="">كل الأنواع</option>
+</select>
+<input id="employeeFilter" class="form-control form-control-sm" placeholder="رقم الموظف">
+<input id="qFilter" class="form-control form-control-sm" placeholder="بحث (ملاحظات، نوع، اسم)">
+<select id="limitSelect" class="form-select form-select-sm">
+  <option value="10">10</option>
+  <option value="25">25</option>
+  <option value="50">50</option>
+</select>
+{% endblock %}
+
+{% block content %}
+<div id="messageBox"></div>
+<div class="alert alert-info py-2 mb-3 small" id="roleInfo" style="display:none;"></div>
+
+<div class="card-block table-holder">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="m-0 fw-bold small">طلبات الإجازة</h6>
+    <div class="spinner-border spinner-border-sm text-primary d-none" id="loader"></div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle" id="vacTable">
+      <thead class="table-light">
+        <tr>
+          <th style="width:55px">#</th>
+          <th>الموظف</th>
+          <th>النوع</th>
+          <th>البداية</th>
+            <th>النهاية</th>
+            <th>الأيام</th>
+            <th>الحالة</th>
+            <th>سبب الرفض</th>
+            <th>ملاحظات</th>
+            <th style="min-width:230px">إجراءات</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p id="emptyState" class="text-center text-muted py-3 d-none mb-0">لا توجد سجلات</p>
+  </div>
+  <div class="d-flex flex-wrap align-items-center gap-2 mt-2" id="paginationBar" style="display:none;">
+    <div class="pages d-flex flex-wrap gap-1" id="pagesContainer"></div>
+    <div class="results-info small text-muted" id="resultsInfo"></div>
+  </div>
+</div>
+
+<!-- Modal إنشاء -->
+<div class="modal fade" id="newModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" id="newForm">
+      <div class="modal-header">
+        <h6 class="modal-title">طلب إجازة جديدة</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body row g-3 small">
+        <div class="col-md-6">
+          <label class="form-label">الموظف</label>
+          <div class="d-flex gap-2">
+            <select class="form-select form-select-sm" name="employee_id" id="employeeSelect" required style="flex:1;">
+              <option value="">جاري التحميل...</option>
+            </select>
+            <input type="text" class="form-control form-control-sm" id="employeeSearch" placeholder="بحث اسم" style="max-width:140px;">
+          </div>
+          <div class="form-text small">اكتب ثم Enter للبحث.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">نوع الإجازة</label>
+          <select class="form-select form-select-sm" name="type_code" id="formType" required>
+            <option value="">اختر...</option>
+          </select>
+          <div class="form-text small" id="typeHints"></div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">البداية</label>
+          <input type="date" class="form-control form-control-sm" name="start_date" id="startInput" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">النهاية</label>
+          <input type="date" class="form-control form-control-sm" name="end_date" id="endInput" required>
+          <div class="form-text small" id="endAutoHint"></div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">الأيام (محسوب)</label>
+          <input type="text" class="form-control form-control-sm" id="daysDisplay" readonly>
+          <div class="form-text small" id="daysHint"></div>
+        </div>
+        <div class="col-12" id="relationWrapper" style="display:none;">
+          <label class="form-label">صلة القرابة</label>
+          <input type="text" class="form-control form-control-sm" name="relation">
+        </div>
+        <div class="col-12">
+          <label class="form-label">ملاحظات</label>
+          <textarea class="form-control form-control-sm" name="notes" rows="2"></textarea>
+        </div>
+        <div class="col-12">
+          <div class="alert alert-warning py-2 small mb-0">
+            الأيام تُحسب تلقائياً. يُمنع التداخل مع طلبات أخرى.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" type="button" data-bs-dismiss="modal">إلغاء</button>
+        <button class="btn btn-primary btn-sm" type="submit">حفظ</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal تعديل طلب -->
+<div class="modal fade" id="editVacModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form class="modal-content" id="editVacForm">
+      <div class="modal-header">
+        <h6 class="modal-title">تعديل طلب</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body row g-2 small">
+        <input type="hidden" id="editVacId">
+        <div class="col-6">
+          <label class="form-label">البداية</label>
+          <input type="date" id="editStart" class="form-control form-control-sm" required>
+        </div>
+        <div class="col-6">
+          <label class="form-label">النهاية</label>
+          <input type="date" id="editEnd" class="form-control form-control-sm" required>
+        </div>
+        <div class="col-12">
+          <label class="form-label">نوع الإجازة (رمز)</label>
+          <input type="text" id="editType" class="form-control form-control-sm">
+        </div>
+        <div class="col-12">
+          <label class="form-label">ملاحظات</label>
+          <textarea id="editNotes" rows="2" class="form-control form-control-sm"></textarea>
+        </div>
+        <div class="col-12">
+          <div class="alert alert-info py-2 small mb-0">
+            التعديل متاح للحالات المعلّقة فقط.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" type="button" data-bs-dismiss="modal">إلغاء</button>
+        <button class="btn btn-primary btn-sm">حفظ التعديلات</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal تعديل موظف -->
+<div class="modal fade" id="empEditModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <form class="modal-content" id="empEditForm">
+      <div class="modal-header">
+        <h6 class="modal-title">تعديل بيانات موظف</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body row g-2 small">
+        <input type="hidden" id="empEditId">
+        <div class="col-md-4">
+          <label class="form-label">الرقم الآلي</label>
+          <input class="form-control form-control-sm" id="empSerial">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label">الاسم</label>
+          <input class="form-control form-control-sm" id="empName">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">الرقم الوطني</label>
+          <input class="form-control form-control-sm" id="empNational">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">القسم (ID)</label>
+          <input class="form-control form-control-sm" id="empDept">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">الحالة</label>
+          <select class="form-select form-select-sm" id="empStatus">
+            <option value="active">نشط</option>
+            <option value="inactive">غير نشط</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">الدرجة</label>
+          <input class="form-control form-control-sm" id="empGrade">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">المسمى</label>
+          <input class="form-control form-control-sm" id="empTitle">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">تعيين</label>
+          <input type="date" class="form-control form-control-sm" id="empHire">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">تاريخ الدرجة</label>
+          <input type="date" class="form-control form-control-sm" id="empGradeDate">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">علاوة</label>
+          <input type="number" class="form-control form-control-sm" id="empBonus">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">رصيد سنوي</label>
+          <input type="number" step="0.5" class="form-control form-control-sm" id="empAnnual">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">رصيد طارئ</label>
+          <input type="number" class="form-control form-control-sm" id="empEmergency">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">أيام العمل</label>
+          <input class="form-control form-control-sm" id="empWorkDays">
+        </div>
+        <div class="col-12">
+          <div class="alert alert-warning small py-2 mb-0">
+            نافذة سريعة. للتعديلات المتقدمة استخدم لوحة المدير.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" type="button" data-bs-dismiss="modal">إلغاء</button>
+        <button class="btn btn-primary btn-sm" type="submit">حفظ</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal رفض -->
+<div class="modal fade" id="rejectModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form class="modal-content" id="rejectForm">
+      <div class="modal-header">
+        <h6 class="modal-title">رفض الطلب</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body small">
+        <input type="hidden" name="rid">
+        <div class="mb-2">
+          <label class="form-label">سبب الرفض</label>
+          <textarea class="form-control form-control-sm" name="reason" rows="3" required></textarea>
+        </div>
+        <div class="alert alert-info py-2 small mb-0">سيظهر السبب في الجدول والسجل.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" type="button" data-bs-dismiss="modal">إلغاء</button>
+        <button class="btn btn-warning btn-sm" type="submit">تأكيد الرفض</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal السجل -->
+<div class="modal fade" id="historyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content" id="historyBox">
+      <div class="modal-header">
+        <h6 class="modal-title">سجل التحولات</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body small">
+        <div id="historyBody">جاري التحميل...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">إغلاق</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API='/api/v1/vacations';
+let USER_ROLE='{{ current_user.role if current_user.is_authenticated else "" }}';
+let VAC_TYPES=[];
+let EMPLOYEES=[];
+let lastFetchedItems=[];
+let currentPage=1;
+
+/* أدوات */
+function showMessage(msg,type='success',timeout=4500){
+  const box=document.getElementById('messageBox');
+  box.innerHTML=`<div class="alert alert-${type} py-2 mb-2">${msg}</div>`;
+  if(timeout) setTimeout(()=>{ if(box.firstChild) box.innerHTML=''; }, timeout);
+}
+function toggleLoader(s){document.getElementById('loader').classList.toggle('d-none', !s);}
+function escapeHtml(s=''){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+const STATUS_LABELS={
+  pending_dept:'بانتظار رئيس القسم',
+  pending_manager:'بانتظار المدير',
+  approved:'معتمدة',
+  rejected_dept:'مرفوضة (قسم)',
+  rejected_manager:'مرفوضة (مدير)',
+  cancelled:'ملغاة'
+};
+function badgeForStatus(st){
+  const map={pending_dept:'bg-secondary',pending_manager:'bg-info',approved:'bg-success',
+             rejected_dept:'bg-danger',rejected_manager:'bg-danger',cancelled:'bg-dark'};
+  return `<span class="badge ${map[st]||'bg-light text-dark'}">${STATUS_LABELS[st]||st}</span>`;
+}
+function canApprove(v){return (v.status==='pending_dept'&&USER_ROLE==='department_head')||(v.status==='pending_manager'&&USER_ROLE==='manager');}
+function canReject(v){return canApprove(v);}
+function canCancel(v){return ['manager','department_head'].includes(USER_ROLE)&&['pending_dept','pending_manager','approved'].includes(v.status);}
+function canEdit(v){return ['pending_dept','pending_manager'].includes(v.status)&&(USER_ROLE==='manager'||(USER_ROLE==='department_head'&&v.status==='pending_dept')); }
+function canDelete(v){return (USER_ROLE==='manager'||USER_ROLE==='admin')&&v.status!=='approved';}
+function metaOf(code){return VAC_TYPES.find(t=>t.code===code);}
+function employeeName(v){
+  if(v.employee_name) return v.employee_name;
+  const e=EMPLOYEES.find(x=>x.id===v.employee_id);
+  return e?e.name:('#'+v.employee_id);
+}
+function buildActions(v){
+  let h='';
+  if(canApprove(v)) h+=`<button class="btn btn-sm btn-success" data-act="approve" data-id="${v.id}">اعتماد</button>`;
+  if(canReject(v)) h+=`<button class="btn btn-sm btn-warning" data-act="reject" data-id="${v.id}">رفض</button>`;
+  if(canCancel(v)) h+=`<button class="btn btn-sm btn-outline-danger" data-act="cancel" data-id="${v.id}">إلغاء</button>`;
+  if(canEdit(v)) h+=`<button class="btn btn-sm btn-outline-primary" data-act="edit" data-id="${v.id}">تعديل</button>`;
+  if(canDelete(v)) h+=`<button class="btn btn-sm btn-outline-dark" data-act="delete" data-id="${v.id}">حذف</button>`;
+  h+=`<button class="btn btn-sm btn-info" data-act="history" data-id="${v.id}">سجل</button>`;
+  return h||'<span class="text-muted small">—</span>';
+}
+
+/* تحميل البيانات الأساسية */
+async function loadVacationTypes(){
+  const r = await fetch('/api/v1/vacation-types', {credentials: 'include'});
+  if(!r.ok) throw new Error('فشل تحميل الأنواع');
+  VAC_TYPES = await r.json();
+  const tf = document.getElementById('typeFilter');
+  tf.innerHTML = '<option value="">كل الأنواع</option>';
+  const formType = document.getElementById('formType');
+  formType.innerHTML = '<option value="">اختر...</option>';
+  VAC_TYPES.forEach(t=>{
+    const o = document.createElement('option');
+    o.value = t.code;
+    o.textContent = t.name_ar;
+    tf.appendChild(o);
+    formType.appendChild(o.cloneNode(true));
+  });
+}
+
+const EMP_ENDPOINT = USER_ROLE === 'department_head'
+  ? '/api/v1/employees?dept_only=1'
+  : '/api/v1/employees';
+
+async function loadEmployees(term=''){
+  const qs = term
+    ? (EMP_ENDPOINT.includes('?') ? '&' : '?') + 'search=' + encodeURIComponent(term)
+    : '';
+  const r = await fetch(EMP_ENDPOINT + qs, {credentials: 'include'});
+  if(!r.ok) throw new Error('فشل تحميل الموظفين');
+  EMPLOYEES = await r.json();
+  fillEmployeeSelect();
+}
+function fillEmployeeSelect(){
+  const sel = document.getElementById('employeeSelect');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">اختر موظفاً...</option>';
+  EMPLOYEES.forEach(e=>{
+    const opt = document.createElement('option');
+    opt.value = e.id;
+    opt.textContent = e.name + ' (ID:'+e.id+')';
+    sel.appendChild(opt);
+  });
+  if(prev && EMPLOYEES.some(e=>String(e.id)===prev)) sel.value = prev;
+}
+
+/* جلب الطلبات */
+async function fetchVacations(goPage){
+  if(goPage) currentPage=goPage;
+  toggleLoader(true);
+  try{
+    const p=new URLSearchParams();
+    const s=statusFilter.value;
+    const t=typeFilter.value;
+    const emp=employeeFilter.value.trim();
+    const q=qFilter.value.trim();
+    const lim=limitSelect.value;
+    if(s) p.append('status',s);
+    if(t) p.append('type',t);
+    if(emp) p.append('employee_id',emp);
+    if(q) p.append('q',q);
+    p.append('page',currentPage);
+    p.append('limit',lim);
+    const r=await fetch(`/api/v1/vacations?${p.toString()}`,{credentials:'include'});
+    const js=await r.json();
+    if(!r.ok) throw new Error(js.error||'HTTP '+r.status);
+    renderTable(js.items||[]);
+    renderPagination(js.total, js.page, js.pages, js.limit);
+  }catch(e){
+    showMessage('تعذر جلب البيانات: '+e.message,'danger',8000);
+  }finally{
+    toggleLoader(false);
+  }
+}
+
+function renderTable(data){
+  const tb=document.querySelector('#vacTable tbody');
+  tb.innerHTML='';
+  lastFetchedItems=data;
+  if(!data.length){emptyState.classList.remove('d-none');return;}
+  emptyState.classList.add('d-none');
+  data.forEach(v=>{
+    const meta=metaOf(v.type_code);
+    const tr=document.createElement('tr');
+    const name=employeeName(v);
+    tr.innerHTML=`
+      <td>${v.id}</td>
+      <td><div class="d-flex align-items-center gap-1">
+            <span>${escapeHtml(name)} <small class="text-muted">(${v.employee_id})</small></span>
+            ${(['manager','admin'].includes(USER_ROLE))?`<button class="btn btn-outline-secondary btn-sm p-0 px-1" title="تعديل الموظف" data-emp="${v.employee_id}" data-act="emp-edit">⚙</button>`:''}
+          </div></td>
+      <td>${meta?escapeHtml(meta.name_ar):escapeHtml(v.type_code)}</td>
+      <td>${v.start_date}</td>
+      <td>${v.end_date}</td>
+      <td>${v.requested_days}</td>
+      <td>${badgeForStatus(v.status)}</td>
+      <td>${(v.status.startsWith('rejected')&&v.rejection_reason)?escapeHtml(v.rejection_reason):''}</td>
+      <td>${v.notes?escapeHtml(v.notes):''}</td>
+      <td class="action-btns">${buildActions(v)}</td>
+    `;
+    tb.appendChild(tr);
+  });
+}
+
+function renderPagination(total,page,pages,limit){
+  const bar=paginationBar;
+  const cont=pagesContainer;
+  const info=resultsInfo;
+  if(!pages || pages<=1){bar.style.display='none';info.textContent='';return;}
+  bar.style.display='flex'; cont.innerHTML='';
+  function btn(label,p,dis=false,act=false){
+    const b=document.createElement('button');
+    b.className='btn btn-sm '+(act?'btn-primary':'btn-outline-primary');
+    b.textContent=label;
+    if(dis) b.disabled=true; else b.addEventListener('click',()=>fetchVacations(p));
+    return b;
+  }
+  cont.appendChild(btn('الأول',1,page===1));
+  cont.appendChild(btn('‹',page-1,page===1));
+  let w=5,start=Math.max(1,page-Math.floor(w/2)),end=start+w-1;
+  if(end>pages){end=pages;start=Math.max(1,end-w+1);}
+  for(let i=start;i<=end;i++) cont.appendChild(btn(i,i,false,i===page));
+  cont.appendChild(btn('›',page+1,page===pages));
+  cont.appendChild(btn('الأخير',pages,page===pages));
+  const from=((page-1)*limit)+1;
+  const to=Math.min(page*limit,total);
+  info.textContent=`عرض ${from}–${to} من ${total}`;
+}
+
+/* أفعال */
+function performAction(id, action, payload=null){
+  let endpoint, opts={method:'POST',credentials:'include'};
+  if(action==='approve') endpoint=`${API}/${id}/approve`;
+  else if(action==='reject'){ endpoint=`${API}/${id}/reject`; opts.headers={'Content-Type':'application/json'}; opts.body=JSON.stringify({reason:payload?.reason||''}); }
+  else if(action==='cancel') endpoint=`${API}/${id}/cancel`;
+  else return;
+  toggleLoader(true);
+  fetch(endpoint,opts)
+    .then(r=>r.json().then(js=>({ok:r.ok,js})))
+    .then(({ok,js})=>{
+      if(!ok) showMessage('فشل الإجراء: '+(js.error||''),'danger');
+      else { showMessage('تم التنفيذ'); fetchVacations(); }
+    }).catch(e=> showMessage('خطأ: '+e.message,'danger'))
+    .finally(()=>toggleLoader(false));
+}
+
+vacTable.addEventListener('click',e=>{
+  const empBtn=e.target.closest('button[data-act="emp-edit"]');
+  if(empBtn){ openEmployeeEdit(empBtn.getAttribute('data-emp')); return; }
+  const btn=e.target.closest('button[data-act]');
+  if(!btn) return;
+  const id=btn.getAttribute('data-id');
+  const act=btn.getAttribute('data-act');
+  if(act==='approve') performAction(id,'approve');
+  else if(act==='reject') openReject(id);
+  else if(act==='cancel'){ if(confirm('تأكيد الإلغاء؟')) performAction(id,'cancel'); }
+  else if(act==='history') openHistory(id);
+  else if(act==='edit') openEditRequest(id);
+  else if(act==='delete'){ if(confirm('حذف نهائي؟')) hardDelete(id); }
+});
+
+function hardDelete(id){
+  toggleLoader(true);
+  fetch(`${API}/${id}`,{method:'DELETE',credentials:'include'})
+    .then(r=>r.json().then(js=>({ok:r.ok,js})))
+    .then(({ok,js})=>{
+      if(!ok) showMessage('فشل الحذف: '+(js.error||''),'danger');
+      else { showMessage('تم الحذف'); fetchVacations(currentPage); }
+    })
+    .catch(e=>showMessage('خطأ: '+e.message,'danger'))
+    .finally(()=>toggleLoader(false));
+}
+
+/* رفض */
+function openReject(id){
+  rejectForm.reset(); rejectForm.rid.value=id;
+  new bootstrap.Modal(rejectModal).show();
+}
+rejectForm.addEventListener('submit',e=>{
+  e.preventDefault();
+  const reason=rejectForm.reason.value.trim();
+  if(!reason){alert('السبب مطلوب');return;}
+  performAction(rejectForm.rid.value,'reject',{reason});
+  bootstrap.Modal.getInstance(rejectModal).hide();
+});
+
+/* سجل */
+function openHistory(id){
+  historyBody.innerHTML='جاري التحميل...';
+  new bootstrap.Modal(historyModal).show();
+  fetch(`${API}/${id}/history`,{credentials:'include'})
+    .then(r=>r.json().then(js=>({ok:r.ok,js})))
+    .then(({ok,js})=>{
+      if(!ok||!Array.isArray(js)){historyBody.innerHTML='<span class="text-danger">فشل</span>';return;}
+      if(!js.length){historyBody.innerHTML='<span class="text-muted">فارغ</span>';return;}
+      historyBody.innerHTML=js.map(ev=>`
+        <div class="border p-2 mb-2 rounded">
+          <strong>${ev.action}</strong> | ${ev.created_at} | ${ev.actor_role||'-'}
+          <div class="small text-muted">من ${ev.from_status||'-'} → إلى ${ev.to_status||'-'}</div>
+          ${ev.note?`<div class="small mt-1">${escapeHtml(ev.note)}</div>`:''}
+        </div>`).join('');
+    }).catch(e=>historyBody.innerHTML='<span class="text-danger">'+e.message+'</span>');
+}
+
+/* تعديل طلب */
+function openEditRequest(id){
+  const r=lastFetchedItems.find(x=>x.id===Number(id));
+  if(!r){showMessage('الطلب غير موجود','danger');return;}
+  editVacId.value=r.id;
+  editStart.value=r.start_date;
+  editEnd.value=r.end_date;
+  editType.value=r.type_code;
+  editNotes.value=r.notes||'';
+  new bootstrap.Modal(editVacModal).show();
+}
+editVacForm.addEventListener('submit',e=>{
+  e.preventDefault();
+  const id=editVacId.value;
+  const payload={
+    start_date:editStart.value,
+    end_date:editEnd.value,
+    type_code:editType.value||null,
+    notes:editNotes.value||null
+  };
+  fetch(`${API}/${id}`,{
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    credentials:'include',
+    body:JSON.stringify(payload)
+  }).then(r=>r.json().then(js=>({ok:r.ok,js})))
+   .then(({ok,js})=>{
+     if(!ok) showMessage('فشل التعديل: '+(js.error||''),'danger');
+     else{
+       showMessage('تم التعديل');
+       bootstrap.Modal.getInstance(editVacModal).hide();
+       fetchVacations(currentPage);
+     }
+   }).catch(e=>showMessage('خطأ: '+e.message,'danger'));
+});
+
+/* تعديل موظف */
+function openEmployeeEdit(empId){
+  if(!['manager','admin'].includes(USER_ROLE)){
+    showMessage('غير مسموح','danger'); return;
+  }
+  fetch(`/api/v1/manager/employees/${empId}`,{credentials:'include'})
+    .then(r=>r.json().then(js=>({ok:r.ok,js})))
+    .then(({ok,js})=>{
+      if(!ok){showMessage(js.error||'فشل جلب بيانات الموظف','danger');return;}
+      empEditId.value=js.id;
+      empSerial.value=js.serial_number||'';
+      empName.value=js.name||'';
+      empNational.value=js.national_id||'';
+      empDept.value=js.department_id||'';
+      empStatus.value=js.status||'active';
+      empGrade.value=js.job_grade||'';
+      empTitle.value=js.job_title||'';
+      empHire.value=js.hiring_date||'';
+      empGradeDate.value=js.grade_date||'';
+      empBonus.value=js.bonus||'';
+      empAnnual.value=js.annual_balance||'';
+      empEmergency.value=js.emergency_balance||'';
+      empWorkDays.value=js.work_days||'';
+      new bootstrap.Modal(empEditModal).show();
+    }).catch(e=>showMessage(e.message,'danger'));
+}
+
+empEditForm.addEventListener('submit',e=>{
+  e.preventDefault();
+  const id=empEditId.value;
+  const payload={
+    serial_number:empSerial.value||null,
+    name:empName.value||null,
+    national_id:empNational.value||null,
+    department_id:empDept.value?Number(empDept.value):null,
+    status:empStatus.value,
+    job_grade:empGrade.value||null,
+    job_title:empTitle.value||null,
+    hiring_date:empHire.value||null,
+    grade_date:empGradeDate.value||null,
+    bonus:empBonus.value||null,
+    annual_balance:empAnnual.value||null,
+    emergency_balance:empEmergency.value||null,
+    work_days:empWorkDays.value||null
+  };
+  fetch(`/api/v1/manager/employees/${id}`,{
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    credentials:'include',
+    body:JSON.stringify(payload)
+  }).then(r=>r.json().then(js=>({ok:r.ok,js})))
+    .then(({ok,js})=>{
+      if(!ok) showMessage('فشل حفظ الموظف: '+(js.error||''),'danger');
+      else{
+        showMessage('تم حفظ بيانات الموظف');
+        bootstrap.Modal.getInstance(empEditModal).hide();
+        loadEmployees().catch(()=>{});
+        fetchVacations(currentPage);
+      }
+    }).catch(e=>showMessage('خطأ: '+e.message,'danger'));
+});
+
+/* إنشاء طلب جديد */
+function inclusiveDays(a,b){
+  if(!a||!b) return '';
+  const d1=new Date(a), d2=new Date(b);
+  if(isNaN(d1)||isNaN(d2)||d2<d1) return '';
+  return ((d2-d1)/(86400000))+1;
+}
+function computeFixedEnd(start,days){
+  if(!start||!days) return '';
+  const d=new Date(start); if(isNaN(d)) return '';
+  d.setDate(d.getDate()+days-1);
+  return d.toISOString().slice(0,10);
+}
+function initNewForm(){
+  const form = document.getElementById('newForm');
+  const typeSel = document.getElementById('formType');
+  const relWrap = document.getElementById('relationWrapper');
+  const start = document.getElementById('startInput');
+  const end = document.getElementById('endInput');
+  const daysDisp = document.getElementById('daysDisplay');
+  const daysHintEl = document.getElementById('daysHint');
+  const endHint = document.getElementById('endAutoHint');
+  const typeHintsEl = document.getElementById('typeHints');
+  const empSearch = document.getElementById('employeeSearch');
+
+  empSearch.addEventListener('keyup', e=>{
+    if(e.key==='Enter'){
+      loadEmployees(empSearch.value.trim()).catch(er=>showMessage(er.message,'danger'));
+    }
+  });
+
+  function getMeta(code){ return VAC_TYPES.find(t=>t.code===code); }
+
+  function refreshType(){
+    const m = getMeta(typeSel.value);
+    relWrap.style.display='none';
+    daysDisp.value='';
+    daysHintEl.textContent='';
+    endHint.textContent='';
+    end.disabled=false;
+    typeHintsEl.textContent='';
+
+    if(!m) return;
+
+    const hints=[];
+    if(m.fixed_duration){
+      daysDisp.value=m.fixed_duration;
+      daysHintEl.textContent='مدة ثابتة';
+      if(start.value){
+        end.value = computeFixedEnd(start.value, m.fixed_duration);
+        end.disabled = true;
+        endHint.textContent='حُسبت تلقائياً.';
+      }else{
+        end.value='';
+        end.disabled = true;
+        endHint.textContent='أدخل تاريخ البداية.';
+      }
+      hints.push(`ثابتة: ${m.fixed_duration} يوم`);
+    } else {
+      if(start.value && end.value){
+        const d = inclusiveDays(start.value,end.value);
+        daysDisp.value = d||'';
+        daysHintEl.textContent = d ? 'محسوبة' : '';
+      }
+    }
+    if(m.requires_relation){
+      relWrap.style.display='block';
+      hints.push('يتطلب صلة قرابة');
+    }
+    if(m.max_per_request) hints.push(`حد أقصى: ${m.max_per_request} يوم`);
+    typeHintsEl.textContent = hints.join(' | ');
+  }
+
+  typeSel.addEventListener('change', refreshType);
+  start.addEventListener('change', ()=>{
+    const m=getMeta(typeSel.value);
+    if(m && m.fixed_duration){
+      if(start.value){
+        end.value=computeFixedEnd(start.value, m.fixed_duration);
+        end.disabled=true;
+        endHint.textContent='تم الحساب.';
+      } else {
+        end.value=''; endHint.textContent='';
+      }
+    } else {
+      if(end.value){
+        const d=inclusiveDays(start.value,end.value);
+        daysDisp.value=d||'';
+        daysHintEl.textContent = d?'محسوبة':'';
+      }
+    }
+  });
+  end.addEventListener('change', ()=>{
+    const m=getMeta(typeSel.value);
+    if(!(m && m.fixed_duration)){
+      const d=inclusiveDays(start.value,end.value);
+      daysDisp.value=d||'';
+      daysHintEl.textContent = d?'محسوبة':'';
+    }
+  });
+
+  form.addEventListener('submit', async e=>{
+    e.preventDefault();
+    if(!typeSel.value) return showMessage('اختر نوع الإجازة','danger');
+    if(!form.employee_id.value) return showMessage('اختر موظف','danger');
+    const meta=getMeta(typeSel.value);
+    if(meta && meta.fixed_duration){
+      if(!start.value) return showMessage('حدد تاريخ البداية','danger');
+      end.value = computeFixedEnd(start.value, meta.fixed_duration);
+      daysDisp.value = meta.fixed_duration;
+    } else {
+      const d=inclusiveDays(start.value,end.value);
+      if(!d) return showMessage('تواريخ غير صالحة','danger');
+      daysDisp.value=d;
+    }
+    const payload={
+      employee_id: Number(form.employee_id.value),
+      type_code: typeSel.value,
+      start_date: start.value,
+      end_date: end.value,
+      relation: form.relation?.value || null,
+      notes: form.notes?.value || ''
+    };
+    toggleLoader(true);
+    try{
+      const r=await fetch(API,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        credentials:'include',
+        body:JSON.stringify(payload)
+      });
+      const js=await r.json();
+      if(!r.ok) showMessage('فشل إنشاء الطلب: '+(js.error||''),'danger');
+      else {
+        showMessage('تم إنشاء الطلب (ID='+js.id+')');
+        bootstrap.Modal.getInstance(document.getElementById('newModal')).hide();
+        form.reset(); end.disabled=false; refreshType();
+        fetchVacations(1);
+      }
+    }catch(err){ showMessage('خطأ: '+err.message,'danger'); }
+    finally{ toggleLoader(false); }
+  });
+
+  document.getElementById('btnNew').addEventListener('click', ()=>{
+    form.reset(); end.disabled=false; refreshType();
+    new bootstrap.Modal(document.getElementById('newModal')).show();
+  });
+
+  refreshType();
+}
+
+/* أحداث عامة */
+btnReload.addEventListener('click',()=>fetchVacations(1));
+[statusFilter,typeFilter,limitSelect].forEach(el=> el.addEventListener('change',()=>fetchVacations(1)));
+employeeFilter.addEventListener('keyup',e=>{ if(e.key==='Enter') fetchVacations(1); });
+qFilter.addEventListener('keyup',e=>{ if(e.key==='Enter') fetchVacations(1); });
+
+document.addEventListener('DOMContentLoaded', async ()=>{
+  try{
+    if(USER_ROLE){
+      roleInfo.style.display='block';
+      roleInfo.textContent='دورك الحالي: '+USER_ROLE;
+    }
+    await loadVacationTypes();
+    await loadEmployees();
+    initNewForm();
+    fetchVacations(1);
+  }catch(e){
+    console.error(e);
+    showMessage('فشل التهيئة: '+e.message,'danger',8000);
+  }
+});
+</script>
+{% endblock %}

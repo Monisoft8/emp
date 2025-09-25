@@ -1,0 +1,46 @@
+{% extends "base_admin.html" %}
+{% block title %}بوابة المدير{% endblock %}
+{% block hero %}
+<div class="hero-portal">
+  <h2 class="fw-bold mb-2">مرحباً بك</h2>
+  <p class="mb-0 small">اختر إحدى الوحدات لإدارة: الموظفين – الإجازات – الغياب – الطلبات الإدارية – النسخ الاحتياطي.</p>
+</div>
+{% endblock %}
+{% block page_title %}الوحدات الرئيسية{% endblock %}
+{% block content %}
+<div class="portal-grid">
+  <div class="portal-tile" onclick="go('/manager/employees')" title="إدارة الموظفين">
+    <div class="ico">👥</div>
+    <h5>الموظفون</h5>
+    <p>إدارة واستيراد وتصدير</p>
+    <span class="portal-badge">HR</span>
+  </div>
+  <div class="portal-tile" onclick="go('/vacations')" title="طلبات الإجازة">
+    <div class="ico">🌴</div>
+    <h5>الإجازات</h5>
+    <p>متابعة واعتماد</p>
+    <span class="portal-badge">Leave</span>
+  </div>
+  <div class="portal-tile" onclick="go('/absences')" title="الغياب">
+    <div class="ico">⏰</div>
+    <h5>الغياب</h5>
+    <p>تسجيل وتتبع</p>
+    <span class="portal-badge">Attendance</span>
+  </div>
+  <div class="portal-tile" onclick="go('/manager/service-requests')" title="الطلبات الإدارية">
+    <div class="ico">🧾</div>
+    <h5>الطلبات</h5>
+    <p>إفادة – شهادة مرتب</p>
+    <span class="portal-badge">Requests</span>
+  </div>
+  <div class="portal-tile" onclick="go('/backup/database')" title="نسخ احتياطي">
+    <div class="ico">💾</div>
+    <h5>نسخ احتياطي</h5>
+    <p>تنزيل قاعدة البيانات</p>
+    <span class="portal-badge">Backup</span>
+  </div>
+</div>
+<script>
+function go(p){window.location=p;}
+</script>
+{% endblock %}

@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-building"></i> قسم {{ department.name }}</h1>
+        <div class="header-actions">
+            <span class="welcome-msg">رئيس القسم: {{ department.head_username }}</span>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-users"></i>
+            </div>
+            <div class="stat-info">
+                <h3>{{ employees|length }}</h3>
+                <p>عدد الموظفين</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-clock"></i>
+            </div>
+            <div class="stat-info">
+                <h3>{{ pending_vacations|length }}</h3>
+                <p>طلبات إجازة معلقة</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-user-times"></i>
+            </div>
+            <div class="stat-info">
+                <h3>{{ today_absences|length }}</h3>
+                <p>غياب اليوم</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('employees')">الموظفين</button>
+        <button class="tab-btn" onclick="switchTab('vacations')">طلبات الإجازة</button>
+        <button class="tab-btn" onclick="switchTab('absences')">سجل الغياب</button>
+    </div>
+
+    <div class="tab-content" id="employeesTab">
+        <h3><i class="fas fa-users"></i> موظفو القسم</h3>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>الاسم</th>
+                        <th>الرقم الوطني</th>
+                        <th>الدرجة</th>
+                        <th>تاريخ التعيين</th>
+                        <th>رصيد الإجازات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for employee in employees %}
+                    <tr>
+                        <td>{{ employee.name }}</td>
+                        <td>{{ employee.national_id or '-' }}</td>
+                        <td>{{ employee.job_grade or '-' }}</td>
+                        <td>{{ employee.hiring_date or '-' }}</td>
+                        <td>{{ employee.vacation_balance or '0' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="tab-content" id="vacationsTab" style="display: none;">
+        <h3><i class="fas fa-calendar-alt"></i> طلبات الإجازة المعلقة</h3>
+        {% if pending_vacations %}
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>الموظف</th>
+                        <th>نوع الإجازة</th>
+                        <th>من</th>
+                        <th>إلى</th>
+                        <th>المدة</th>
+                        <th>الإجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for vacation in pending_vacations %}
+                    <tr>
+                        <td>{{ vacation.employee_name }}</td>
+                        <td>{{ vacation.type }}</td>
+                        <td>{{ vacation.start_date }}</td>
+                        <td>{{ vacation.end_date }}</td>
+                        <td>{{ vacation.duration }} أيام</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn btn-sm btn-success" onclick="approveVacation({{ vacation.id }})">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="rejectVacation({{ vacation.id }})">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="fas fa-check-circle"></i>
+            <p>لا توجد طلبات إجازة معلقة</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="tab-content" id="absencesTab" style="display: none;">
+        <h3><i class="fas fa-user-times"></i> غياب اليوم</h3>
+        {% if today_absences %}
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>الموظف</th>
+                        <th>نوع الغياب</th>
+                        <th>المدة</th>
+                        <th>ملاحظات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for absence in today_absences %}
+                    <tr>
+                        <td>{{ absence.employee_name }}</td>
+                        <td>{{ absence.type }}</td>
+                        <td>{{ absence.duration }} يوم</td>
+                        <td>{{ absence.notes or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="fas fa-check-circle"></i>
+            <p>لا يوجد غياب لهذا اليوم</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function switchTab(tabName) {
+    // إخفاء جميع المحتويات
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.style.display = 'none';
+    });
+    
+    // إلغاء تنشيط جميع الأزرار
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // إظهار المحتوى المحدد وتنشيط الزر
+    document.getElementById(tabName + 'Tab').style.display = 'block';
+    event.currentTarget.classList.add('active');
+}
+
+function approveVacation(vacationId) {
+    if (confirm('هل تريد الموافقة على هذه الإجازة؟')) {
+        fetch(`/approve/vacation/${vacationId}`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('تمت الموافقة بنجاح');
+                location.reload();
+            }
+        });
+    }
+}
+
+function rejectVacation(vacationId) {
+    const reason = prompt('سبب الرفض:');
+    if (reason) {
+        fetch(`/reject/vacation/${vacationId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ reason: reason })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('تم الرفض بنجاح');
+                location.reload();
+            }
+        });
+    }
+}
+</script>
+
+<style>
+.tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin: 2rem 0;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.tab-btn {
+    padding: 1rem 2rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text-light);
+    border-bottom: 3px solid transparent;
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.tab-content {
+    animation: fadeIn 0.3s ease;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: var(--text-light);
+}
+
+.empty-state i {
+    font-size: 3rem;
+    color: var(--success-color);
+    margin-bottom: 1rem;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+</style>
+{% endblock %}

@@ -1,0 +1,552 @@
+{% extends "base_admin.html" %}
+{% block title %}الغياب والتأخير{% endblock %}
+{% block page_title %}إدارة الغياب والتأخير{% endblock %}
+
+{% block action_bar %}
+<button class="btn btn-sm btn-success" data-bs-toggle="collapse" data-bs-target="#quickBox">إدخال سريع</button>
+<button class="btn btn-sm btn-secondary" id="btnReload">تحديث</button>
+<button class="btn btn-sm btn-outline-primary" id="btnReports">التقارير</button>
+<select id="filterType" class="form-select form-select-sm">
+  <option value="">كل الأنواع</option>
+  <option value="absence">غياب</option>
+  <option value="late">تأخير</option>
+  <option value="early_leave">انصراف مبكر</option>
+</select>
+<input id="filterEmp" placeholder="رقم موظف" class="form-control form-control-sm">
+<input id="filterFrom" type="date" class="form-control form-control-sm">
+<input id="filterTo" type="date" class="form-control form-control-sm">
+<input id="filterQ" placeholder="بحث" class="form-control form-control-sm">
+<select id="filterLimit" class="form-select form-select-sm">
+  <option value="10">10</option>
+  <option value="25">25</option>
+  <option value="50">50</option>
+</select>
+{% endblock %}
+
+{% block content %}
+<div id="msgBox"></div>
+<div class="alert alert-info py-2 mb-3 small" id="roleInfo" style="display:none;"></div>
+
+<div class="collapse show mb-3" id="quickBox">
+  <div class="card-block">
+    <h6 class="fw-bold mb-3 small">تسجيل غياب / تأخير / انصراف مبكر</h6>
+    <form id="quickForm" class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small">الموظف</label>
+        <select id="empSelect" class="form-select form-select-sm" required>
+          <option value="">جاري التحميل...</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">النوع</label>
+        <select id="typeSelect" class="form-select form-select-sm" required>
+          <option value="absence">غياب</option>
+          <option value="late">تأخير</option>
+          <option value="early_leave">انصراف مبكر</option>
+        </select>
+      </div>
+      <div class="col-md-2" id="singleDateBox">
+        <label class="form-label small">التاريخ</label>
+        <input type="date" id="singleDate" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-2 d-none" id="rangeStartBox">
+        <label class="form-label small">من</label>
+        <input type="date" id="rangeStart" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-2 d-none" id="rangeEndBox">
+        <label class="form-label small">إلى</label>
+        <input type="date" id="rangeEnd" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-1">
+        <div class="form-check mt-4">
+          <input class="form-check-input" type="checkbox" id="multiDaysChk">
+          <label class="form-check-label small" for="multiDaysChk">عدة أيام</label>
+        </div>
+      </div>
+      <div class="col-md-1">
+        <label class="form-label small">الأيام</label>
+        <input type="text" id="daysCalc" class="form-control form-control-sm" readonly value="1">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">ملاحظات</label>
+        <input class="form-control form-control-sm" id="notesInput" placeholder="اختياري">
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-success btn-sm w-100 mt-4" id="btnSave">حفظ</button>
+      </div>
+      <div class="col-12 small text-muted mt-2">
+        الغياب المتعدد يشمل البداية والنهاية. التأخير والانصراف المبكر دائماً يوم واحد.
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card-block table-holder">
+  <div class="d-flex justify-content-between mb-2">
+    <h6 class="fw-bold small mb-0">سجلات الغياب</h6>
+    <div class="spinner-border spinner-border-sm text-primary d-none" id="loader"></div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered align-middle" id="absTable">
+      <thead class="table-light">
+        <tr>
+          <th style="width:55px">#</th>
+            <th>الموظف</th>
+            <th>النوع</th>
+            <th>البداية</th>
+            <th>النهاية</th>
+            <th>الأيام</th>
+            <th>ملاحظات</th>
+            <th style="min-width:150px">إجراءات</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p id="emptyState" class="text-center text-muted py-3 d-none mb-0">لا توجد سجلات</p>
+  </div>
+  <div class="d-flex flex-wrap align-items-center gap-2 mt-2" id="pager" style="display:none;">
+    <div id="pagesBox" class="d-flex flex-wrap gap-1"></div>
+    <div class="small text-muted" id="rangeInfo"></div>
+  </div>
+</div>
+
+<!-- Modal تعديل -->
+<div class="modal fade" id="editAbsModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form class="modal-content" id="editAbsForm">
+      <div class="modal-header">
+        <h6 class="modal-title">تعديل سجل الغياب</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body row g-2">
+        <input type="hidden" id="editAbsId">
+        <div class="col-md-4">
+          <label class="form-label small">النوع</label>
+          <select id="editType" class="form-select form-select-sm">
+            <option value="absence">غياب</option>
+            <option value="late">تأخير</option>
+            <option value="early_leave">انصراف مبكر</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">البداية</label>
+          <input type="date" id="editStart" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">النهاية</label>
+          <input type="date" id="editEnd" class="form-control form-control-sm">
+        </div>
+        <div class="col-12">
+          <label class="form-label small">ملاحظات</label>
+          <textarea id="editNotes" class="form-control form-control-sm" rows="2"></textarea>
+        </div>
+        <div class="col-12">
+          <div class="alert alert-info py-2 small mb-0">
+            للتأخير / الانصراف المبكر يتم اعتبار يوم واحد (سيتم توحيد البداية والنهاية).
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" type="button" data-bs-dismiss="modal">إلغاء</button>
+        <button class="btn btn-primary btn-sm">حفظ</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal التقارير -->
+<div class="modal fade" id="reportsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">توليد تقرير الغياب</h6>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="reportForm" class="row g-2">
+          <div class="col-md-4">
+            <label class="form-label small">نوع التقرير</label>
+            <select class="form-select form-select-sm" id="repType" required>
+              <option value="month">شهر كامل</option>
+              <option value="range">مدة محددة</option>
+              <option value="employee">موظف معيّن</option>
+            </select>
+          </div>
+          <div class="col-md-4 rep-field rep-month">
+            <label class="form-label small">السنة</label>
+            <input type="number" min="2000" class="form-control form-control-sm" id="repYear" value="2025">
+          </div>
+          <div class="col-md-4 rep-field rep-month">
+            <label class="form-label small">الشهر</label>
+            <input type="number" min="1" max="12" class="form-control form-control-sm" id="repMonth" value="9">
+          </div>
+          <div class="col-md-6 rep-field rep-range rep-employee">
+            <label class="form-label small">من تاريخ</label>
+            <input type="date" class="form-control form-control-sm" id="repStart">
+          </div>
+          <div class="col-md-6 rep-field rep-range rep-employee">
+            <label class="form-label small">إلى تاريخ</label>
+            <input type="date" class="form-control form-control-sm" id="repEnd">
+          </div>
+          <div class="col-md-6 rep-field rep-employee">
+            <label class="form-label small">الموظف (ID)</label>
+            <input type="number" class="form-control form-control-sm" id="repEmpId" placeholder="مثال: 5">
+          </div>
+          <div class="col-md-12">
+            <button class="btn btn-primary btn-sm" type="submit">عرض</button>
+            <button class="btn btn-outline-success btn-sm" type="button" id="btnDownloadExcel" disabled>تنزيل Excel</button>
+          </div>
+        </form>
+        <hr>
+        <div id="reportResult" class="small"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">إغلاق</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API='/api/v1/absences';
+let USER_ROLE='{{ current_user.role if current_user.is_authenticated else "" }}';
+let currentPage=1,totalPages=1;
+
+/* رسائل */
+function msg(t,cls='success',timeout=4000){
+  const box=document.getElementById('msgBox');
+  box.innerHTML=`<div class="alert alert-${cls} py-2 mb-2">${t}</div>`;
+  if(timeout) setTimeout(()=>box.innerHTML='',timeout);
+}
+function loader(s){document.getElementById('loader').classList.toggle('d-none', !s);}
+function escapeHtml(s=''){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+/* تحميل الموظفين */
+async function loadEmployees(){
+  const r=await fetch('/api/v1/employees',{credentials:'include'});
+  if(!r.ok){msg('فشل تحميل الموظفين','danger');return;}
+  const js=await r.json();
+  const sel=document.getElementById('empSelect');
+  sel.innerHTML='<option value="">اختر...</option>';
+  js.forEach(e=>{
+    const o=document.createElement('option');
+    o.value=e.id;
+    o.textContent=e.name + ' (ID:'+e.id+')';
+    sel.appendChild(o);
+  });
+}
+
+/* تفعيل واجهة النطاق */
+function toggleRangeUI(){
+  const multi=multiDaysChk.checked;
+  const type=typeSelect.value;
+  const singleBox=singleDateBox;
+  if(multi && type==='absence'){
+    singleBox.classList.add('d-none');
+    rangeStartBox.classList.remove('d-none');
+    rangeEndBox.classList.remove('d-none');
+  } else {
+    singleBox.classList.remove('d-none');
+    rangeStartBox.classList.add('d-none');
+    rangeEndBox.classList.add('d-none');
+    daysCalc.value='1';
+  }
+}
+function recalcDays(){
+  const multi=multiDaysChk.checked;
+  const type=typeSelect.value;
+  if(!multi || type!=='absence'){
+    daysCalc.value='1'; return;
+  }
+  const s=rangeStart.value, e=rangeEnd.value;
+  if(!s||!e){daysCalc.value='';return;}
+  const d1=new Date(s), d2=new Date(e);
+  if(d2<d1){daysCalc.value='';return;}
+  const days=((d2-d1)/86400000)+1;
+  daysCalc.value=days;
+}
+
+/* جلب السجلات */
+async function fetchAbsences(goPage){
+  if(goPage) currentPage=goPage;
+  loader(true);
+  try{
+    const p=new URLSearchParams();
+    const ft=filterType.value;
+    const fe=filterEmp.value.trim();
+    const ff=filterFrom.value;
+    const ftod=filterTo.value;
+    const fq=filterQ.value.trim();
+    const lim=filterLimit.value;
+    if(ft) p.append('type',ft);
+    if(fe) p.append('employee_id',fe);
+    if(ff) p.append('from',ff);
+    if(ftod) p.append('to',ftod);
+    if(fq) p.append('q',fq);
+    p.append('page',currentPage);
+    p.append('limit',lim);
+    const r=await fetch(`${API}?${p.toString()}`,{credentials:'include'});
+    const js=await r.json();
+    if(!r.ok) throw new Error(js.error||'HTTP '+r.status);
+    renderTable(js.items||[]);
+    renderPager(js.total, js.page, js.pages, js.limit);
+  }catch(e){
+    msg('تعذر تحميل السجلات: '+e.message,'danger',6000);
+  }finally{
+    loader(false);
+  }
+}
+
+function renderTable(items){
+  const tb=document.querySelector('#absTable tbody');
+  tb.innerHTML='';
+  if(!items.length){emptyState.classList.remove('d-none');return;}
+  emptyState.classList.add('d-none');
+  items.forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td>${r.id}</td>
+      <td>${r.employee_name?escapeHtml(r.employee_name)+' <small class="text-muted">('+r.employee_id+')</small>':r.employee_id}</td>
+      <td>${r.type_label||r.type}</td>
+      <td>${r.start_date||''}</td>
+      <td>${r.end_date||''}</td>
+      <td>${r.duration||''}</td>
+      <td>${r.notes?escapeHtml(r.notes):''}</td>
+      <td class="action-btns">
+        <button class="btn btn-sm btn-outline-primary" data-act="edit" data-id="${r.id}">تعديل</button>
+        <button class="btn btn-sm btn-outline-danger" data-act="del" data-id="${r.id}">حذف</button>
+      </td>
+    `;
+    tb.appendChild(tr);
+  });
+}
+
+function renderPager(total,page,pages,limit){
+  const bar=pager;
+  const cont=pagesBox;
+  const info=rangeInfo;
+  if(pages<=1){bar.style.display='none';info.textContent='';return;}
+  bar.style.display='flex';
+  cont.innerHTML='';
+  function btn(label,p,dis=false,act=false){
+    const b=document.createElement('button');
+    b.className='btn btn-sm '+(act?'btn-primary':'btn-outline-primary');
+    b.textContent=label;
+    if(dis) b.disabled=true;
+    else b.addEventListener('click',()=>fetchAbsences(p));
+    return b;
+  }
+  cont.appendChild(btn('الأول',1,page===1));
+  cont.appendChild(btn('‹',page-1,page===1));
+  let w=5,start=Math.max(1,page-Math.floor(w/2)),end=start+w-1;
+  if(end>pages){end=pages;start=Math.max(1,end-w+1);}
+  for(let i=start;i<=end;i++) cont.appendChild(btn(i,i,false,i===page));
+  cont.appendChild(btn('›',page+1,page===pages));
+  cont.appendChild(btn('الأخير',pages,page===pages));
+  const from=((page-1)*limit)+1;
+  const to=Math.min(page*limit,total);
+  info.textContent=`عرض ${from}–${to} من ${total}`;
+}
+
+/* أحداث */
+multiDaysChk.addEventListener('change',()=>{toggleRangeUI();recalcDays();});
+typeSelect.addEventListener('change',()=>{toggleRangeUI();recalcDays();});
+['rangeStart','rangeEnd'].forEach(id=>document.getElementById(id).addEventListener('change',recalcDays));
+
+quickForm.addEventListener('submit', async e=>{
+  e.preventDefault();
+  const emp=empSelect.value;
+  const type=typeSelect.value;
+  if(!emp){msg('اختر الموظف','danger');return;}
+  const multi=multiDaysChk.checked;
+  let payload={ employee_id:Number(emp), type, notes: notesInput.value||null };
+  if(type==='absence' && multi){
+    const s=rangeStart.value;
+    const ed=rangeEnd.value;
+    if(!s||!ed){msg('أكمل نطاق التواريخ','danger');return;}
+    payload.start_date=s; payload.end_date=ed;
+  }else{
+    const d=singleDate.value;
+    if(!d){msg('حدد تاريخاً','danger');return;}
+    payload.date=d;
+  }
+  try{
+    loader(true);
+    const r=await fetch(API,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'include',
+      body:JSON.stringify(payload)
+    });
+    const js=await r.json();
+    if(!r.ok) msg(js.error||'فشل الحفظ','danger');
+    else{
+      msg('تم الحفظ');
+      notesInput.value='';
+      fetchAbsences();
+    }
+  }catch(err){msg(err.message,'danger');}
+  finally{loader(false);}
+});
+
+/* تعديل / حذف */
+absTable.addEventListener('click',e=>{
+  const btn=e.target.closest('button[data-act]');
+  if(!btn) return;
+  const id=btn.getAttribute('data-id');
+  const act=btn.getAttribute('data-act');
+  if(act==='del'){
+    if(!confirm('حذف السجل؟')) return;
+    fetch(`${API}/${id}`,{method:'DELETE',credentials:'include'})
+      .then(r=>r.json().then(js=>({ok:r.ok,js})))
+      .then(({ok,js})=>{
+        if(!ok) msg(js.error||'فشل الحذف','danger');
+        else { msg('تم الحذف'); fetchAbsences(); }
+      }).catch(err=>msg(err.message,'danger'));
+  }else if(act==='edit'){
+    fetch(`${API}/${id}`,{credentials:'include'})
+      .then(r=>r.json().then(js=>({ok:r.ok,js})))
+      .then(({ok,js})=>{
+        if(!ok){msg(js.error||'غير موجود','danger');return;}
+        editAbsId.value=js.id;
+        editType.value=js.type;
+        editStart.value=js.start_date||'';
+        editEnd.value=js.end_date||'';
+        editNotes.value=js.notes||'';
+        new bootstrap.Modal(editAbsModal).show();
+      }).catch(err=>msg(err.message,'danger'));
+  }
+});
+
+editAbsForm.addEventListener('submit',e=>{
+  e.preventDefault();
+  const id=editAbsId.value;
+  const payload={
+    type:editType.value,
+    start_date:editStart.value||null,
+    end_date:editEnd.value||null,
+    notes:editNotes.value||null
+  };
+  fetch(`${API}/${id}`,{
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    credentials:'include',
+    body:JSON.stringify(payload)
+  }).then(r=>r.json().then(js=>({ok:r.ok,js})))
+    .then(({ok,js})=>{
+      if(!ok) msg(js.error||'فشل التعديل','danger');
+      else{
+        msg('تم التعديل');
+        bootstrap.Modal.getInstance(editAbsModal).hide();
+        fetchAbsences(currentPage);
+      }
+    }).catch(err=>msg(err.message,'danger'));
+});
+
+/* فلاتر */
+btnReload.addEventListener('click',()=>fetchAbsences(1));
+['filterType','filterLimit','filterFrom','filterTo'].forEach(id=>{
+  document.getElementById(id).addEventListener('change',()=>fetchAbsences(1));
+});
+filterEmp.addEventListener('keyup',e=>{ if(e.key==='Enter') fetchAbsences(1); });
+filterQ.addEventListener('keyup',e=>{ if(e.key==='Enter') fetchAbsences(1); });
+
+/* التقارير */
+const repModalEl=document.getElementById('reportsModal');
+const reportForm=document.getElementById('reportForm');
+const repType=document.getElementById('repType');
+const repYear=document.getElementById('repYear');
+const repMonth=document.getElementById('repMonth');
+const repStart=document.getElementById('repStart');
+const repEnd=document.getElementById('repEnd');
+const repEmp=document.getElementById('repEmpId');
+const resBox=document.getElementById('reportResult');
+const btnDownload=document.getElementById('btnDownloadExcel');
+
+function toggleReportFields(){
+  const t=repType.value;
+  document.querySelectorAll('.rep-field').forEach(el=>el.style.display='none');
+  if(t==='month'){
+    document.querySelectorAll('.rep-month').forEach(el=>el.style.display='block');
+  }else if(t==='range'){
+    document.querySelectorAll('.rep-range').forEach(el=>el.style.display='block');
+  }else if(t==='employee'){
+    document.querySelectorAll('.rep-employee').forEach(el=>el.style.display='block');
+  }
+  btnDownload.disabled=true;
+  resBox.innerHTML='';
+}
+repType.addEventListener('change',toggleReportFields);
+toggleReportFields();
+
+btnReports.addEventListener('click',()=>{ new bootstrap.Modal(repModalEl).show(); });
+
+reportForm.addEventListener('submit',async e=>{
+  e.preventDefault();
+  resBox.innerHTML='جاري توليد التقرير...';
+  btnDownload.disabled=true;
+  try{
+    const params=new URLSearchParams();
+    params.append('report_type', repType.value);
+    if(repType.value==='month'){
+      params.append('year', repYear.value);
+      params.append('month', repMonth.value);
+    }else if(repType.value==='range'){
+      if(!repStart.value || !repEnd.value){resBox.innerHTML='حدد من/إلى.';return;}
+      params.append('start_date', repStart.value);
+      params.append('end_date', repEnd.value);
+    }else if(repType.value==='employee'){
+      if(!repEmp.value){resBox.innerHTML='حدد رقم الموظف.';return;}
+      params.append('employee_id', repEmp.value);
+      if(repStart.value && repEnd.value){
+        params.append('start_date', repStart.value);
+        params.append('end_date', repEnd.value);
+      }
+    }
+    const r=await fetch('/api/v1/absences/report?'+params.toString(),{credentials:'include'});
+    const js=await r.json();
+    if(!r.ok){resBox.innerHTML='<span class="text-danger">خطأ: '+(js.error||'')+'</span>';return;}
+    renderReport(js);
+    btnDownload.disabled=false;
+    btnDownload.dataset.query=params.toString();
+  }catch(err){
+    resBox.innerHTML='<span class="text-danger">'+err.message+'</span>';
+  }
+});
+btnDownload.addEventListener('click',()=>{
+  const q=btnDownload.dataset.query;
+  if(!q) return;
+  window.location='/api/v1/absences/report/export?'+q;
+});
+
+function renderReport(data){
+  const items=data.items||[];
+  if(!items.length){
+    resBox.innerHTML='<div class="alert alert-warning py-2 small mb-2">لا توجد بيانات ضمن هذه المعايير.</div>';
+    return;
+  }
+  let html='<div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>الموظف</th><th>النوع</th><th>الأيام</th></tr></thead><tbody>';
+  items.forEach(r=>{
+    html+=`<tr><td>${escapeHtml(r.employee_name)}</td><td>${escapeHtml(r.type_label)}</td><td>${r.days}</td></tr>`;
+  });
+  html+='</tbody></table></div>';
+  html+=`<div class="mt-2 small">الإجمالي الكلي للأيام: <strong>${data.totals?.grand_total_days||0}</strong></div>`;
+  resBox.innerHTML=html;
+}
+
+(function init(){
+  if(USER_ROLE){
+    roleInfo.style.display='block';
+    roleInfo.textContent='دورك الحالي: '+USER_ROLE;
+  }
+  const today=new Date().toISOString().slice(0,10);
+  singleDate.value=today;
+  rangeStart.value=today;
+  rangeEnd.value=today;
+  loadEmployees().then(()=>fetchAbsences(1));
+  toggleRangeUI();
+})();
+</script>
+{% endblock %}

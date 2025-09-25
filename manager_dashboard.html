@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}لوحة المدير{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <h2 class="mb-3">لوحة المدير</h2>
+
+  <div class="list-group">
+    <a href="{{ url_for('employees.employees_list') }}" class="list-group-item list-group-item-action">
+      إدارة الموظفين
+    </a>
+    <a href="{{ url_for('vacations.vacations_list') }}" class="list-group-item list-group-item-action">
+      الإجازات
+    </a>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,244 @@
+{% extends "base_admin.html" %}
+{% block title %}واجهة رئيس القسم{% endblock %}
+{% block page_title %}واجهة رئيس القسم{% endblock %}
+
+{% block action_bar %}
+<button id="btnReload" class="btn btn-sm btn-secondary">تحديث الطلبات</button>
+<select id="statusFilter" class="form-select form-select-sm">
+  <option value="">كل الحالات</option>
+  <option value="pending_dept">بانتظار رئيس القسم</option>
+  <option value="pending_manager">محالة للمدير (موافقة القسم)</option>
+  <option value="approved">معتمدة</option>
+  <option value="rejected_dept">مرفوضة (قسم)</option>
+  <option value="rejected_manager">مرفوضة (مدير)</option>
+  <option value="cancelled">ملغاة</option>
+</select>
+<select id="employeeFilter" class="form-select form-select-sm">
+  <option value="">كل موظفي القسم</option>
+</select>
+{% endblock %}
+
+{% block content %}
+<div id="msgBox"></div>
+<div class="alert alert-info py-2 small">دورك الحالي: department_head</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-3">
+    <div class="bg-white p-3 rounded shadow-sm border">
+      <div class="small text-muted">عدد الموظفين بالقسم</div>
+      <h5 id="deptEmployeesCount" class="m-0">—</h5>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="bg-white p-3 rounded shadow-sm border">
+      <div class="small text-muted">طلبات معلقة عند رئيس القسم</div>
+      <h5 id="pendingDeptCount" class="m-0">—</h5>
+    </div>
+  </div>
+</div>
+
+<div class="card-block table-holder">
+  <div class="d-flex justify-content-between mb-2">
+    <h6 class="m-0">طلبات إجازات موظفي القسم</h6>
+    <div class="spinner-border spinner-border-sm text-primary d-none" id="loader"></div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered align-middle" id="deptVacTable">
+      <thead class="table-light">
+        <tr>
+          <th style="width:55px">#</th>
+          <th>الموظف</th>
+          <th>النوع</th>
+          <th>البداية</th>
+          <th>النهاية</th>
+          <th>الأيام</th>
+          <th>الحالة</th>
+          <th>سبب الرفض</th>
+          <th>ملاحظات</th>
+          <th style="min-width:160px">إجراءات</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p id="emptyState" class="text-center text-muted py-3 d-none mb-0">لا توجد طلبات</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+/* إخفاء شريط تنقل المدير (المضمن في base_admin) في هذه الصفحة فقط */
+document.addEventListener('DOMContentLoaded', () => {
+  const maybeNav = document.querySelector('nav.navbar');
+  if (maybeNav) maybeNav.style.display = 'none';
+});
+
+/* إعدادات */
+const API_DEPT='/api/v1/dept/vacations';
+const API_EMP='/api/v1/employees?dept_only=1';
+const STATUS_LABELS={
+  pending_dept:'بانتظار رئيس القسم',
+  pending_manager:'محالة للمدير (موافقة القسم)',
+  approved:'معتمدة',
+  rejected_dept:'مرفوضة (قسم)',
+  rejected_manager:'مرفوضة (مدير)',
+  cancelled:'ملغاة'
+};
+
+/* أدوات */
+function showMsg(m, t='success', time=4000){
+  const box=document.getElementById('msgBox');
+  box.innerHTML=`<div class="alert alert-${t} py-2 mb-2">${m}</div>`;
+  if(time) setTimeout(()=>{ if(box.firstChild) box.innerHTML=''; }, time);
+}
+function loader(on){document.getElementById('loader').classList.toggle('d-none', !on);}
+function escapeHtml(s=''){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function badgeStatus(s){
+  const cls={
+    pending_dept:'bg-secondary',
+    pending_manager:'bg-info',
+    approved:'bg-success',
+    rejected_dept:'bg-danger',
+    rejected_manager:'bg-danger',
+    cancelled:'bg-dark'
+  }[s] || 'bg-light text-dark';
+  return `<span class="badge ${cls}">${STATUS_LABELS[s]||s}</span>`;
+}
+
+/* تحميل موظفي القسم */
+let EMP=[];
+async function loadEmployees(){
+  const r=await fetch(API_EMP,{credentials:'include'});
+  if(!r.ok) throw new Error('فشل تحميل موظفي القسم');
+  EMP=await r.json();
+  const sel=document.getElementById('employeeFilter');
+  sel.innerHTML='<option value="">كل موظفي القسم</option>';
+  EMP.forEach(e=>{
+    const o=document.createElement('option');
+    o.value=e.id;
+    o.textContent=`${e.name} (ID:${e.id})`;
+    sel.appendChild(o);
+  });
+  document.getElementById('deptEmployeesCount').textContent=EMP.length;
+}
+
+/* جلب طلبات القسم */
+let CURRENT_ITEMS=[];
+async function fetchDeptVacations(){
+  loader(true);
+  try{
+    const status=document.getElementById('statusFilter').value;
+    const empId=document.getElementById('employeeFilter').value;
+    const params=new URLSearchParams();
+    if(status) params.append('status',status);
+    const r=await fetch(API_DEPT+(params.toString()?'?'+params.toString():''),{credentials:'include'});
+    // إن أعاد السيرفر HTML لأي سبب سيكسر JSON. نحاول:
+    let data;
+    const txt=await r.text();
+    try{ data=JSON.parse(txt); } catch{ throw new Error('الاستجابة ليست JSON'); }
+    if(!r.ok) throw new Error(data.error||'HTTP '+r.status);
+    if(!Array.isArray(data)) throw new Error('تنسيق غير متوقع');
+    let items=data;
+    if(empId) items=items.filter(x=>String(x.employee_id)===String(empId));
+    CURRENT_ITEMS=items;
+    renderTable(items);
+    const pendingDept=items.filter(x=>x.status==='pending_dept').length;
+    document.getElementById('pendingDeptCount').textContent=pendingDept;
+  }catch(e){
+    showMsg('تعذر تحميل الطلبات: '+e.message,'danger',6000);
+    renderTable([]); // تفريغ الجدول
+  }finally{
+    loader(false);
+  }
+}
+
+function renderTable(items){
+  const tb=document.querySelector('#deptVacTable tbody');
+  tb.innerHTML='';
+  const empty=document.getElementById('emptyState');
+  if(!items.length){ empty.classList.remove('d-none'); return; }
+  empty.classList.add('d-none');
+  items.forEach(v=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td>${v.id}</td>
+      <td>${escapeHtml(v.employee_name||('#'+v.employee_id))}</td>
+      <td>${escapeHtml(v.type_code)}</td>
+      <td>${v.start_date}</td>
+      <td>${v.end_date}</td>
+      <td>${v.requested_days}</td>
+      <td>${badgeStatus(v.status)}</td>
+      <td>${v.rejection_reason?escapeHtml(v.rejection_reason):''}</td>
+      <td>${v.notes?escapeHtml(v.notes):''}</td>
+      <td class="text-nowrap">
+        ${v.status==='pending_dept'?`
+          <button class="btn btn-sm btn-success" data-act="approve" data-id="${v.id}">موافقة وإحالة</button>
+          <button class="btn btn-sm btn-warning" data-act="reject" data-id="${v.id}">رفض</button>
+        `:''}
+        ${['pending_dept','pending_manager','approved'].includes(v.status)?`
+          <button class="btn btn-sm btn-outline-danger" data-act="cancel" data-id="${v.id}">إلغاء</button>
+        `:''}
+      </td>
+    `;
+    tb.appendChild(tr);
+  });
+}
+
+/* أفعال على الطلب */
+async function actOn(id, action){
+  let ep='', method='POST', body=null;
+  if(action==='approve'){
+    ep=`/api/v1/vacations/${id}/approve`;
+  } else if(action==='reject'){
+    const reason=prompt('سبب الرفض:'); if(!reason) return;
+    ep=`/api/v1/vacations/${id}/reject`; body=JSON.stringify({reason});
+  } else if(action==='cancel'){
+    if(!confirm('تأكيد الإلغاء؟')) return;
+    ep=`/api/v1/vacations/${id}/cancel`;
+  } else { return; }
+
+  try{
+    loader(true);
+    const r=await fetch(ep,{method,credentials:'include',headers: body?{'Content-Type':'application/json'}:undefined,body});
+    const js=await r.json();
+    if(!r.ok) throw new Error(js.error||'فشل الإجراء');
+    // رسالة خاصة عند موافقة رئيس القسم
+    if(action==='approve' && (js.status==='pending_manager' || js.success)){
+      showMsg('تمت الموافقة والإحالة للمدير');
+    } else {
+      showMsg('تم تنفيذ العملية');
+    }
+    fetchDeptVacations();
+  }catch(e){
+    showMsg('خطأ: '+e.message,'danger',6000);
+  }finally{
+    loader(false);
+  }
+}
+
+/* مستمعو الأحداث */
+document.getElementById('deptVacTable').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-act]');
+  if(!b) return;
+  actOn(b.getAttribute('data-id'), b.getAttribute('data-act'));
+});
+document.getElementById('btnReload').addEventListener('click',()=>fetchDeptVacations());
+document.getElementById('statusFilter').addEventListener('change',()=>fetchDeptVacations());
+document.getElementById('employeeFilter').addEventListener('change',()=>fetchDeptVacations());
+
+/* تشغيل مبدئي */
+(async function start(){
+  try{
+    await loadEmployees();
+    await fetchDeptVacations();
+  }catch(e){
+    showMsg(e.message,'danger',6000);
+  }
+})();
+</script>
+
+<style>
+/* إخفاء شريط تنقل المدير في هذه الصفحة فقط */
+nav.navbar { display:none !important; }
+</style>
+{% endblock %}

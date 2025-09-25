@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-check-circle"></i> إدارة الموافقات</h1>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('pending')">طلبات معلقة</button>
+        <button class="tab-btn" onclick="switchTab('approved')">تمت الموافقة</button>
+        <button class="tab-btn" onclick="switchTab('rejected')">مرفوضة</button>
+    </div>
+
+    <div class="tab-content" id="pendingTab">
+        <h3><i class="fas fa-clock"></i> الطلبات المعلقة</h3>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>الموظف</th>
+                        <th>القسم</th>
+                        <th>نوع الإجازة</th>
+                        <th>من</th>
+                        <th>إلى</th>
+                        <th>المدة</th>
+                        <th>ملاحظات</th>
+                        <th>تاريخ الطلب</th>
+                        <th>الإجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for vacation in pending_vacations %}
+                    <tr>
+                        <td>{{ vacation.employee_name }}</td>
+                        <td>{{ vacation.department }}</td>
+                        <td>{{ vacation.type }}</td>
+                        <td>{{ vacation.start_date }}</td>
+                        <td>{{ vacation.end_date }}</td>
+                        <td>{{ vacation.duration }} أيام</td>
+                        <td>{{ vacation.notes|default('لا يوجد', true) }}</td>
+                        <td>{{ vacation.created_at[:10] }}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn btn-sm btn-success" onclick="approveRequest({{ vacation.id }})">
+                                    <i class="fas fa-check"></i>
+                                    موافقة
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="rejectRequest({{ vacation.id }})">
+                                    <i class="fas fa-times"></i>
+                                    رفض
+                                </button>
+                                <button class="btn btn-sm btn-info" onclick="viewDetails({{ vacation.id }})">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="tab-content" id="approvedTab" style="display: none;">
+        <h3><i class="fas fa-check"></i> الطلبات الموفقة</h3>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>الموظف</th>
+                        <th>نوع الإجازة</th>
+                        <th>الفترة</th>
+                        <th>المدة</th>
+                        <th>تاريخ الموافقة</th>
+                        <th>تمت الموافقة بواسطة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for vacation in approved_vacations %}
+                    <tr>
+                        <td>{{ vacation.employee_name }}</td>
+                        <td>{{ vacation.type }}</td>
+                        <td>{{ vacation.start_date }} إلى {{ vacation.end_date }}</td>
+                        <td>{{ vacation.duration }} أيام</td>
+                        <td>{{ vacation.manager_approved_at[:10] if vacation.manager_approved_at else vacation.dept_approved_at[:10] }}</td>
+                        <td>{{ 'المدير' if vacation.manager_approved_at else 'رئيس القسم' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="tab-content" id="rejectedTab" style="display: none;">
+        <h3><i class="fas fa-times"></i> الطلبات المرفوضة</h3>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>الموظف</th>
+                        <th>نوع الإجازة</th>
+                        <th>الفترة</th>
+                        <th>سبب الرفض</th>
+                        <th>تاريخ الرفض</th>
+                        <th>مرفوض بواسطة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for vacation in rejected_vacations %}
+                    <tr>
+                        <td>{{ vacation.employee_name }}</td>
+                        <td>{{ vacation.type }}</td>
+                        <td>{{ vacation.start_date }} إلى {{ vacation.end_date }}</td>
+                        <td>{{ vacation.rejection_reason|default('لا يوجد سبب', true) }}</td>
+                        <td>{{ vacation.manager_approved_at[:10] if vacation.manager_approved_at else vacation.dept_approved_at[:10] }}</td>
+                        <td>{{ 'المدير' if vacation.manager_approved_at else 'رئيس القسم' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function switchTab(tabName) {
+    // إخفاء جميع المحتويات
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.style.display = 'none';
+    });
+    
+    // إلغاء تنشيط جميع الأزرار
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // إظهار المحتوى المحدد وتنشيط الزر
+    document.getElementById(tabName + 'Tab').style.display = 'block';
+    event.currentTarget.classList.add('active');
+}
+
+async function approveRequest(vacationId) {
+    if (confirm('هل تريد الموافقة على هذا الطلب؟')) {
+        try {
+            const response = await fetch(`/approve/vacation/${vacationId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                alert('تمت الموافقة على الطلب بنجاح');
+                location.reload();
+            } else {
+                alert('حدث خطأ: ' + data.error);
+            }
+        } catch (error) {
+            alert('حدث خطأ في الاتصال');
+        }
+    }
+}
+
+async function rejectRequest(vacationId) {
+    const reason = prompt('يرجى إدخال سبب الرفض:');
+    if (reason !== null) {
+        try {
+            const response = await fetch(`/reject/vacation/${vacationId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ reason: reason })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                alert('تم رفض الطلب بنجاح');
+                location.reload();
+            } else {
+                alert('حدث خطأ: ' + data.error);
+            }
+        } catch (error) {
+            alert('حدث خطأ في الاتصال');
+        }
+    }
+}
+
+function viewDetails(vacationId) {
+    alert('عرض تفاصيل الطلب رقم: ' + vacationId);
+    // يمكن تنفيذ عرض التفاصيل في modal
+}
+</script>
+
+<style>
+.tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.tab-btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text-light);
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.tab-btn:hover {
+    color: var(--primary-color);
+}
+
+.tab-content {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+{% endblock %}

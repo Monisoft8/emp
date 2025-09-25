@@ -1,0 +1,617 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-users"></i> إدارة الموظفين</h1>
+        <div class="header-actions">
+            <button class="btn btn-primary" onclick="showAddEmployeeModal()">
+                <i class="fas fa-plus"></i>
+                إضافة موظف جديد
+            </button>
+            <button class="btn btn-secondary" onclick="showImportSection()">
+                <i class="fas fa-file-import"></i>
+                استيراد Excel
+            </button>
+            <button class="btn btn-info" onclick="exportEmployees()">
+                <i class="fas fa-download"></i>
+                تصدير البيانات
+            </button>
+        </div>
+    </div>
+
+    <div class="filters-section">
+        <div class="filter-group">
+            <input type="text" id="searchInput" placeholder="بحث بالاسم أو الرقم..." class="search-input">
+            <select id="departmentFilter" class="filter-select">
+                <option value="">جميع الأقسام</option>
+                {% for dept in departments %}
+                <option value="{{ dept.id }}">{{ dept.name }}</option>
+                {% endfor %}
+            </select>
+            <select id="statusFilter" class="filter-select">
+                <option value="">جميع الحالات</option>
+                <option value="active">نشط</option>
+                <option value="inactive">غير نشط</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="stats-cards">
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-users"></i>
+            </div>
+            <div class="stat-info">
+                <h3>{{ employees|length }}</h3>
+                <p>إجمالي الموظفين</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-building"></i>
+            </div>
+            <div class="stat-info">
+                <h3>{{ departments|length }}</h3>
+                <p>عدد الأقسام</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-calendar-check"></i>
+            </div>
+            <div class="stat-info">
+                <h3>{{ on_vacation_count }}</h3>
+                <p>موظفين في إجازة</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div class="table-responsive">
+            <table class="data-table" id="employeesTable">
+                <thead>
+                    <tr>
+                        <th>الرقم الآلي</th>
+                        <th>الاسم</th>
+                        <th>الرقم الوطني</th>
+                        <th>القسم</th>
+                        <th>الدرجة</th>
+                        <th>تاريخ التعيين</th>
+                        <th>العلاوة</th>
+                        <th>رصيد الإجازات</th>
+                        <th>الحالة</th>
+                        <th>الإجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for employee in employees %}
+                    <tr data-employee-id="{{ employee.id }}" data-department-id="{{ employee.department_id }}">
+                        <td>{{ employee.serial_number or '-' }}</td>
+                        <td>{{ employee.name }}</td>
+                        <td>{{ employee.national_id or '-' }}</td>
+                        <td>{{ employee.dept_name or 'غير محدد' }}</td>
+                        <td>{{ employee.job_grade or '-' }}</td>
+                        <td>{{ employee.hiring_date or '-' }}</td>
+                        <td>{{ employee.bonus or '0' }}</td>
+                        <td>
+                            <span class="vacation-balance {% if employee.vacation_balance < 10 %}low-balance{% endif %}">
+                                {{ employee.vacation_balance or '0' }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="status status-active">نشط</span>
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn btn-sm btn-info" onclick="editEmployee({{ employee.id }})" title="تعديل">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm btn-warning" onclick="viewEmployee({{ employee.id }})" title="عرض">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteEmployee({{ employee.id }})" title="حذف">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- قسم الاستيراد -->
+    <div id="importSection" class="import-section" style="display: none;">
+        <h3><i class="fas fa-file-import"></i> استيراد بيانات الموظفين</h3>
+        <div class="import-instructions">
+            <p><strong>تعليمات الاستيراد:</strong> يجب أن يحتوي ملف Excel على الأعمدة التالية:</p>
+            <ul>
+                <li>الرقم الآلي</li>
+                <li>الاسم</li>
+                <li>الرقم الوطني</li>
+                <li>القسم</li>
+                <li>الدرجة الوظيفية</li>
+                <li>تاريخ التعيين</li>
+                <li>العلاوة</li>
+            </ul>
+        </div>
+        <form action="{{ url_for('employees.import_employees') }}" method="post" enctype="multipart/form-data" class="import-form">
+            <div class="form-group">
+                <label>اختر ملف Excel:</label>
+                <input type="file" name="file" id="fileInput" accept=".xlsx,.xls" required>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-upload"></i>
+                    استيراد البيانات
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="hideImportSection()">
+                    إلغاء
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- نموذج إضافة/تعديل موظف -->
+    <div id="employeeModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">إضافة موظف جديد</h3>
+                <span class="close" onclick="closeEmployeeModal()">&times;</span>
+            </div>
+            <form id="employeeForm" class="modal-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>الرقم الآلي</label>
+                        <input type="text" name="serial_number" required>
+                    </div>
+                    <div class="form-group">
+                        <label>الاسم الكامل</label>
+                        <input type="text" name="name" required>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>الرقم الوطني</label>
+                        <input type="text" name="national_id" required>
+                    </div>
+                    <div class="form-group">
+                        <label>القسم</label>
+                        <select name="department_id" required>
+                            <option value="">اختر القسم</option>
+                            {% for dept in departments %}
+                            <option value="{{ dept.id }}">{{ dept.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>الدرجة الوظيفية</label>
+                        <select name="job_grade" required>
+                            <option value="">اختر الدرجة</option>
+                            {% for i in range(1, 15) %}
+                            <option value="الدرجة {{ i }}">الدرجة {{ i }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>تاريخ التعيين</label>
+                        <input type="date" name="hiring_date" required>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>تاريخ الدرجة</label>
+                        <input type="date" name="grade_date">
+                    </div>
+                    <div class="form-group">
+                        <label>العلاوة</label>
+                        <input type="number" name="bonus" value="0" min="0">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>رصيد الإجازات</label>
+                        <input type="number" name="vacation_balance" value="30" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label>أيام العمل</label>
+                        <input type="text" name="work_days" placeholder="أيام العمل...">
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeEmployeeModal()">إلغاء</button>
+                    <button type="submit" class="btn btn-primary">حفظ</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// وظائف JavaScript لإدارة الموظفين
+function showAddEmployeeModal() {
+    document.getElementById('modalTitle').textContent = 'إضافة موظف جديد';
+    document.getElementById('employeeForm').reset();
+    document.getElementById('employeeForm').dataset.mode = 'add';
+    document.getElementById('employeeModal').style.display = 'block';
+}
+
+function showImportSection() {
+    document.getElementById('importSection').style.display = 'block';
+}
+
+function hideImportSection() {
+    document.getElementById('importSection').style.display = 'none';
+}
+
+function editEmployee(employeeId) {
+    const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
+    const form = document.getElementById('employeeForm');
+    
+    form.dataset.mode = 'edit';
+    form.dataset.employeeId = employeeId;
+    document.getElementById('modalTitle').textContent = 'تعديل بيانات الموظف';
+    
+    // ملء البيانات في النموذج
+    form.elements.serial_number.value = row.cells[0].textContent;
+    form.elements.name.value = row.cells[1].textContent;
+    form.elements.national_id.value = row.cells[2].textContent;
+    form.elements.department_id.value = row.dataset.departmentId;
+    form.elements.job_grade.value = row.cells[4].textContent;
+    form.elements.hiring_date.value = row.cells[5].textContent;
+    form.elements.bonus.value = row.cells[6].textContent;
+    form.elements.vacation_balance.value = row.cells[7].textContent;
+    
+    document.getElementById('employeeModal').style.display = 'block';
+}
+
+function viewEmployee(employeeId) {
+    // عرض تفاصيل الموظف
+    alert('عرض تفاصيل الموظف رقم: ' + employeeId);
+}
+
+function deleteEmployee(employeeId) {
+    if (confirm('هل أنت متأكد من حذف هذا الموظف؟')) {
+        fetch(`/employees/delete/${employeeId}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.message);
+                location.reload();
+            } else {
+                alert('حدث خطأ: ' + data.error);
+            }
+        });
+    }
+}
+
+function closeEmployeeModal() {
+    document.getElementById('employeeModal').style.display = 'none';
+}
+
+function exportEmployees() {
+    window.open('/export/employees', '_blank');
+}
+
+// البحث والتصفية
+document.getElementById('searchInput').addEventListener('input', filterEmployees);
+document.getElementById('departmentFilter').addEventListener('change', filterEmployees);
+document.getElementById('statusFilter').addEventListener('change', filterEmployees);
+
+function filterEmployees() {
+    const searchText = document.getElementById('searchInput').value.toLowerCase();
+    const department = document.getElementById('departmentFilter').value;
+    const status = document.getElementById('statusFilter').value;
+    
+    const rows = document.querySelectorAll('#employeesTable tbody tr');
+    
+    rows.forEach(row => {
+        const name = row.cells[1].textContent.toLowerCase();
+        const serial = row.cells[0].textContent.toLowerCase();
+        const empDepartment = row.dataset.departmentId;
+        const empStatus = row.cells[8].textContent;
+        
+        const matchesSearch = name.includes(searchText) || serial.includes(searchText);
+        const matchesDepartment = !department || empDepartment === department;
+        const matchesStatus = !status || empStatus === status;
+        
+        row.style.display = matchesSearch && matchesDepartment && matchesStatus ? '' : 'none';
+    });
+}
+
+// إغلاق النماذج عند النقر خارج المحتوى
+window.onclick = function(event) {
+    const modal = document.getElementById('employeeModal');
+    if (event.target === modal) {
+        closeEmployeeModal();
+    }
+    
+    const importSection = document.getElementById('importSection');
+    if (event.target === importSection) {
+        hideImportSection();
+    }
+}
+
+// إرسال نموذج الموظف
+document.getElementById('employeeForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const data = Object.fromEntries(formData.entries());
+    const mode = this.dataset.mode;
+    const url = mode === 'edit' ? 
+        `/employees/update/${this.dataset.employeeId}` : 
+        '/employees/add';
+    
+    fetch(url, {
+        method: mode === 'edit' ? 'PUT' : 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            closeEmployeeModal();
+            location.reload();
+        } else {
+            alert('حدث خطأ: ' + data.error);
+        }
+    });
+});
+</script>
+
+<style>
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.header-actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.filters-section {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.filter-group {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.search-input, .filter-select {
+    padding: 0.75rem;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 1rem;
+    min-width: 200px;
+}
+
+.stats-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.stat-card {
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.stat-icon {
+    width: 50px;
+    height: 50px;
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.2rem;
+}
+
+.stat-info h3 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin: 0;
+}
+
+.stat-info p {
+    color: var(--text-light);
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+.vacation-balance {
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-weight: 600;
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.vacation-balance.low-balance {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.status {
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.status-active {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.status-inactive {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.import-section {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.import-instructions {
+    background: #f8fafc;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    border-left: 4px solid var(--primary-color);
+}
+
+.import-instructions ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.import-instructions li {
+    margin: 0.25rem 0;
+    color: var(--text-light);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+    background-color: white;
+    margin: 5% auto;
+    padding: 0;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-form {
+    padding: 1.5rem;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close:hover {
+    color: black;
+}
+
+@media (max-width: 768px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .header-actions {
+        justify-content: center;
+    }
+    
+    .filter-group {
+        flex-direction: column;
+    }
+    
+    .search-input, .filter-select {
+        min-width: unset;
+    }
+    
+    .stats-cards {
+        grid-template-columns: 1fr;
+    }
+    
+    .action-buttons {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}
